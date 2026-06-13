@@ -15,7 +15,12 @@ mainfont: "Noto Sans Korean Light"
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, eval = TRUE, warning = FALSE, message = FALSE, fig.width=6, fig.height=4, out.width = "70%", fig.align = "center", python.reticulate = TRUE)  
 options(knitr.table.format = "html")
-reticulate::use_condaenv(condaenv = "introds", conda = "/opt/homebrew/bin/conda") # for persistency
+reticulate_python <- Sys.getenv("RETICULATE_PYTHON")
+if (nzchar(reticulate_python)) {
+  reticulate::use_python(reticulate_python, required = TRUE)
+} else if (file.exists("/opt/homebrew/bin/conda")) {
+  reticulate::use_condaenv(condaenv = "introds", conda = "/opt/homebrew/bin/conda", required = FALSE)
+}
 ```
 
 ## 지시사항
@@ -535,4 +540,3 @@ GitHub Page를 사용하여 저장소를 웹페이지로 활용하는 부분은 
 작업을 GitHub 원격 저장소로 push한 후 숙제 2 문제 3-3의 3, 4번 과정을 반복하라.
 
 ### 답안
-

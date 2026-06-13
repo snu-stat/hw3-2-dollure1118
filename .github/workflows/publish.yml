@@ -54,6 +54,22 @@ jobs:
           Rscript -e 'library(reticulate); use_python(Sys.getenv("RETICULATE_PYTHON"), required = TRUE); py_run_string("import pyexpat, pandas, statsmodels.api as sm\nprint(\"reticulate expat:\", pyexpat.EXPAT_VERSION)")'
           quarto render
         shell: bash -l {0}
+      
+      # ... (기존 Quarto Render 단계 이후)
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/my-r-env:latest
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3

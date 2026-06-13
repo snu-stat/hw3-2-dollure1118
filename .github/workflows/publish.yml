@@ -16,19 +16,16 @@ jobs:
         run: |
           sudo apt-get update
 
-      - name: Setup Miniconda
-        uses: conda-incubator/setup-miniconda@v3
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          auto-update-conda: true
           python-version: '3.10'
-          activate-environment: r-reticulate
-          channels: conda-forge,defaults
 
-      - name: Install Python dependencies via Conda
+      - name: Install Python dependencies
         run: |
-          conda install -y -n r-reticulate -c conda-forge python=3.10 numpy pandas matplotlib polars statsmodels libexpat
+          python -m pip install --upgrade pip
+          python -m pip install numpy pandas matplotlib polars statsmodels
         # 추가로 필요한 패키지 설치
-        shell: bash -l {0}
 
       - name: Set up R
         uses: r-lib/actions/setup-r@v2
@@ -48,11 +45,7 @@ jobs:
 
       - name: Render Quarto
         run: |
-          conda activate r-reticulate
-          export CONDA_ENV_PREFIX=$(conda info --base)/envs/r-reticulate
-          export RETICULATE_PYTHON=$CONDA_ENV_PREFIX/bin/python
-          export LD_LIBRARY_PATH=$CONDA_ENV_PREFIX/lib:${LD_LIBRARY_PATH:-}
-          export LD_PRELOAD=$CONDA_ENV_PREFIX/lib/libexpat.so${LD_PRELOAD:+:$LD_PRELOAD}
+          export RETICULATE_PYTHON=$(python -c "import sys; print(sys.executable)")
           python -c "import pyexpat, pandas, statsmodels.api; print('Python:', __import__('sys').executable); print('Expat:', pyexpat.EXPAT_VERSION)"
           Rscript -e 'library(reticulate); use_python(Sys.getenv("RETICULATE_PYTHON"), required = TRUE); py_run_string("import pyexpat, pandas, statsmodels.api as sm\nprint(\"reticulate expat:\", pyexpat.EXPAT_VERSION)")'
           quarto render

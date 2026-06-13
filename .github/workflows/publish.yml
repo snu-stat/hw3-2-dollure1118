@@ -52,7 +52,9 @@ jobs:
           export CONDA_ENV_PREFIX=$(conda info --base)/envs/r-reticulate
           export RETICULATE_PYTHON=$CONDA_ENV_PREFIX/bin/python
           export LD_LIBRARY_PATH=$CONDA_ENV_PREFIX/lib:${LD_LIBRARY_PATH:-}
+          export LD_PRELOAD=$CONDA_ENV_PREFIX/lib/libexpat.so${LD_PRELOAD:+:$LD_PRELOAD}
           python -c "import pyexpat, pandas, statsmodels.api; print('Python:', __import__('sys').executable); print('Expat:', pyexpat.EXPAT_VERSION)"
+          Rscript -e 'library(reticulate); use_python(Sys.getenv("RETICULATE_PYTHON"), required = TRUE); py_run_string("import pyexpat, pandas, statsmodels.api as sm\nprint(\"reticulate expat:\", pyexpat.EXPAT_VERSION)")'
           quarto render
         shell: bash -l {0}
 

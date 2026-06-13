@@ -53,6 +53,8 @@ jobs:
           python -c "import pyexpat, pandas, statsmodels.api; print('Python:', __import__('sys').executable); print('Expat:', pyexpat.EXPAT_VERSION)"
           Rscript -e 'library(reticulate); use_python(Sys.getenv("RETICULATE_PYTHON"), required = TRUE); py_run_string("import pyexpat, pandas, statsmodels.api as sm\nprint(\"reticulate expat:\", pyexpat.EXPAT_VERSION)")'
           quarto render
+          quarto render hw03.qmd --to ipynb
+          test -f _site/hw03.ipynb
         shell: bash -l {0}
       
       # ... (기존 Quarto Render 단계 이후)

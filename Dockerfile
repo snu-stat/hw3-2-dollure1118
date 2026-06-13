@@ -25,8 +25,12 @@ RUN conda create -y -n r-reticulate -c conda-forge --override-channels \
     pandas \
     matplotlib \
     polars \
-    statsmodels && \
+    statsmodels \
+    notebook \
+    jupyter_client \
+    ipykernel && \
     conda clean -afy
+ENV PATH=${CONDA_DIR}/envs/r-reticulate/bin:${CONDA_DIR}/bin:${PATH}
 
 # 5. R 패키지 설치
 RUN R -e "install.packages(c('reticulate', 'knitr', 'rmarkdown', 'NHANES', 'broom', 'forcats', 'IRkernel'))" && \

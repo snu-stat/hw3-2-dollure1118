@@ -43,6 +43,10 @@ jobs:
         # 추가로 필요한 패키지 설치
         shell: Rscript {0}
 
+      - name: Prepare README as Index
+        run: |
+          cp README.md index.md
+
       - name: Render Quarto
         run: |
           export RETICULATE_PYTHON=$(python -c "import sys; print(sys.executable)")

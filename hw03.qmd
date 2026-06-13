@@ -16,10 +16,18 @@ mainfont: "Noto Sans Korean Light"
 knitr::opts_chunk$set(echo = TRUE, eval = TRUE, warning = FALSE, message = FALSE, fig.width=6, fig.height=4, out.width = "70%", fig.align = "center", python.reticulate = TRUE)  
 options(knitr.table.format = "html")
 reticulate_python <- Sys.getenv("RETICULATE_PYTHON")
+<<<<<<< HEAD
 if (nzchar(reticulate_python)) {
   reticulate::use_python(reticulate_python, required = TRUE)
 } else if (file.exists("/opt/homebrew/bin/conda")) {
   reticulate::use_condaenv(condaenv = "introds", conda = "/opt/homebrew/bin/conda", required = FALSE)
+=======
+
+if (nzchar(reticulate_python)) {
+  reticulate::use_python(reticulate_python, required = TRUE)
+} else if (file.exists("/opt/homebrew/bin/conda")) {
+  reticulate::use_condaenv("introds", conda = "/opt/homebrew/bin/conda", required = FALSE)
+>>>>>>> 36598b0 (fg)
 }
 ```
 

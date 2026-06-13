@@ -1,0 +1,8 @@
+project:
+  type: website
+  output-dir: _site
+
+format:
+  html:
+    embed-resources: true
+  ipynb: default  # HTML 빌드 시 ipynb 파일도 함께 생성하도록 설정

@@ -65,6 +65,305 @@ Python code
 
 ### 답안
 
+::: {.panel-tabset}
+
+## R
+
+```{r}
+# 10.6.6.
+library(tidyverse)
+library(NHANES)
+library(ggplot2)
+library(broom)
+library(dplyr)
+library(forcats)
+
+# 20대 이상의 성인 중 흡연자 여부 판정, 결측치는 비흡연자로 분류 
+smoke_dat <- NHANES %>%
+  dplyr::filter(Age >= 20) %>%
+  dplyr::mutate(
+    CurrentSmoke = dplyr::case_when(
+      Smoke100 == "No" ~ 0,
+      Smoke100 == "Yes" & SmokeNow == "Yes" ~ 1,
+      Smoke100 == "Yes" & SmokeNow == "No" ~ 0,
+      TRUE ~ NA_real_
+    ),
+    CurrentSmoke = factor(CurrentSmoke, levels = c(0, 1),
+                          labels = c("No", "Yes"))
+  )
+
+# 설명변수 선택 및 결측 제거 & 로지스틱 적합 
+# 우선 설명변수는 흡연과 이론적으로 관련 있는 변수들을 후보로 두되 결측치가 많은 변수는 포함하지 않는다 
+model_dat <- smoke_dat %>%
+  dplyr::select(
+    CurrentSmoke,
+    Age,
+    Gender,
+    Race1,
+    Education,
+    MaritalStatus,
+    Poverty,
+    BMI,
+    Diabetes,
+    HealthGen,
+    PhysActive,
+    AlcoholDay
+  ) %>%
+  tidyr::drop_na()
+
+fit <- glm(
+  CurrentSmoke ~ Age + Gender + Race1 + Education + MaritalStatus +
+    Poverty + BMI + Diabetes + HealthGen + PhysActive + AlcoholDay,
+  data = model_dat,
+  family = binomial
+)
+
+summary(fit)
+
+
+# AIC 기준 stepwise 변수선택
+# 충돌방지를 위해 library(MASS) -> MASS:stepAIC
+fit_step <- MASS::stepAIC(
+  fit,
+  direction = "both",
+  trace = TRUE
+)
+
+summary(fit_step)
+
+# 오즈비로 시각화 
+or_plot_dat <- broom::tidy(fit_step, exponentiate = TRUE, conf.int = TRUE) %>%
+  dplyr::filter(term != "(Intercept)") %>%
+  dplyr::mutate(
+    term = forcats::fct_reorder(term, estimate)
+  )
+
+ggplot(or_plot_dat,
+       aes(x = estimate, y = term)) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "gray50") +
+  geom_point(size = 2.5, color = "#2C7FB8") +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high),
+                 height = 0.2, color = "#2C7FB8") +
+  scale_x_log10() +
+  labs(
+    title = "Predictors of Current Smoking",
+    x = "Odds Ratio, log scale",
+    y = "Predictor"
+  ) +
+  theme_minimal()
+```
+
+## Python
+
+```{python}
+# 10.6.6.
+import pandas as pd
+import numpy as np
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
+import matplotlib.pyplot as plt
+
+nhanes = pd.read_csv("NHANES.csv")
+
+# 전처리 
+if "rownames" in nhanes.columns:
+    nhanes = nhanes.drop(columns=["rownames"])
+
+# 20대 이상의 성인 중 흡연자 여부 판정, 결측치는 비흡연자로 분류 
+smoke_dat = nhanes[nhanes["Age"] >= 20].copy()
+
+smoke_dat["CurrentSmoke"] = np.select(
+    [
+        smoke_dat["Smoke100"] == "No",
+        (smoke_dat["Smoke100"] == "Yes") & (smoke_dat["SmokeNow"] == "Yes"),
+        (smoke_dat["Smoke100"] == "Yes") & (smoke_dat["SmokeNow"] == "No")
+    ],
+    [
+        0,
+        1,
+        0
+    ],
+    default=np.nan
+)
+
+# 설명변수 선택 및 결측 제거
+vars_used = [
+    "CurrentSmoke",
+    "Age",
+    "Gender",
+    "Race1",
+    "Education",
+    "MaritalStatus",
+    "Poverty",
+    "BMI",
+    "Diabetes",
+    "HealthGen",
+    "PhysActive",
+    "AlcoholDay"
+]
+
+model_dat = smoke_dat[vars_used].dropna().copy()
+
+# 로지스틱 회귀 적합
+full_formula = """
+CurrentSmoke ~ Age + C(Gender) + C(Race1) + C(Education) + C(MaritalStatus)
++ Poverty + BMI + C(Diabetes) + C(HealthGen) + C(PhysActive) + AlcoholDay
+"""
+
+fit = smf.glm(
+    formula=full_formula,
+    data=model_dat,
+    family=sm.families.Binomial()
+).fit()
+
+print(fit.summary())
+
+# AIC 기준 stepwise 변수선택, stepAIC가 없어 직접 구현
+candidate_terms = [
+    "Age",
+    "C(Gender)",
+    "C(Race1)",
+    "C(Education)",
+    "C(MaritalStatus)",
+    "Poverty",
+    "BMI",
+    "C(Diabetes)",
+    "C(HealthGen)",
+    "C(PhysActive)",
+    "AlcoholDay"
+]
+
+def make_formula(terms):
+    return "CurrentSmoke ~ " + " + ".join(terms)
+
+def fit_aic(terms, data):
+    formula = make_formula(terms)
+    model = smf.glm(
+        formula=formula,
+        data=data,
+        family=sm.families.Binomial()
+    ).fit()
+    return model, model.aic
+
+def stepwise_aic(data, terms, trace=True):
+    current_terms = terms.copy()
+    current_model, current_aic = fit_aic(current_terms, data)
+
+    if trace:
+        print("Start AIC:", current_aic)
+        print(make_formula(current_terms))
+
+    improved = True
+
+    while improved:
+        improved = False
+        results = []
+
+        # backward: 변수 하나 제거
+        for term in current_terms:
+            trial_terms = [t for t in current_terms if t != term]
+            if len(trial_terms) == 0:
+                continue
+
+            try:
+                trial_model, trial_aic = fit_aic(trial_terms, data)
+                results.append((trial_aic, trial_terms, trial_model, f"Remove {term}"))
+            except Exception:
+                pass
+
+        # forward: 제거된 변수 다시 추가
+        for term in terms:
+            if term not in current_terms:
+                trial_terms = current_terms + [term]
+
+                try:
+                    trial_model, trial_aic = fit_aic(trial_terms, data)
+                    results.append((trial_aic, trial_terms, trial_model, f"Add {term}"))
+                except Exception:
+                    pass
+
+        if len(results) == 0:
+            break
+
+        best_aic, best_terms, best_model, action = min(results, key=lambda x: x[0])
+
+        if best_aic < current_aic:
+            current_aic = best_aic
+            current_terms = best_terms
+            current_model = best_model
+            improved = True
+
+            if trace:
+                print(action)
+                print("AIC:", current_aic)
+                print(make_formula(current_terms))
+
+    return current_model, current_terms
+
+fit_step, selected_terms = stepwise_aic(model_dat, candidate_terms, trace=True)
+
+print(fit_step.summary())
+print(selected_terms)
+
+# 6. Odds ratio table 만들기
+
+params = fit_step.params
+conf = fit_step.conf_int()
+pvalues = fit_step.pvalues
+
+or_table = pd.DataFrame({
+    "term": params.index,
+    "estimate": np.exp(params),
+    "conf_low": np.exp(conf[0]),
+    "conf_high": np.exp(conf[1]),
+    "p_value": pvalues
+})
+
+or_table = or_table[or_table["term"] != "Intercept"].copy()
+
+# term 이름 정리
+def clean_term(term):
+    term = term.replace("C(", "")
+    term = term.replace(")[T.", "")
+    term = term.replace("]", "")
+    return term
+
+or_table["term_clean"] = or_table["term"].apply(clean_term)
+
+# 오즈비 기준 정렬
+or_table = or_table.sort_values("estimate")
+
+# 7. Odds ratio plot
+plt.figure(figsize=(10, 8))
+
+plt.errorbar(
+    x=or_table["estimate"],
+    y=or_table["term_clean"],
+    xerr=[
+        or_table["estimate"] - or_table["conf_low"],
+        or_table["conf_high"] - or_table["estimate"]
+    ],
+    fmt="o",
+    color="#2C7FB8",
+    ecolor="#2C7FB8",
+    capsize=3
+)
+
+plt.axvline(x=1, linestyle="--", color="gray")
+plt.xscale("log")
+
+plt.title("Predictors of Current Smoking", fontsize=16)
+plt.xlabel("Odds Ratio, log scale")
+plt.ylabel("Predictor")
+
+plt.grid(True, axis="x", alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+:::
+
+
 
 # 2부  데이터 분석 실무
 

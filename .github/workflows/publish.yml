@@ -25,7 +25,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install numpy pandas matplotlib polars statsmodels
+          python -m pip install numpy pandas matplotlib polars statsmodels scipy 
         # 추가로 필요한 패키지 설치
 
       - name: Set up R
@@ -40,7 +40,7 @@ jobs:
         env:
           GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          install.packages(c("reticulate", "knitr", "rmarkdown", "tidyverse", "NHANES", "ggplot2", "broom", "dplyr", "forcats"))
+          install.packages(c("reticulate", "knitr", "rmarkdown", "tidyverse", "NHANES", "ggplot2", "broom", "dplyr", "forcats", "MASS", "warnings"))
         # 추가로 필요한 패키지 설치
         shell: Rscript {0}
 

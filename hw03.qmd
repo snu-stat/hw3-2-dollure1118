@@ -1552,10 +1552,18 @@ cat("\n")
 if (!is.null(nb_step_model)) {
   cat("Negative binomial selected/final model\n")
   print(formula(nb_step_model))
-  print(summary(nb_step_model))
+  nb_coef <- coef(nb_step_model)
+  nb_se <- sqrt(diag(vcov(nb_step_model)))
+  nb_coef_table <- data.frame(
+    Estimate = nb_coef,
+    Std_Error = nb_se,
+    z_value = nb_coef / nb_se,
+    p_value = 2 * pnorm(abs(nb_coef / nb_se), lower.tail = FALSE)
+  )
+  print(nb_coef_table)
   cat("Estimated theta:", nb_step_model$theta, "\n")
   cat("SE(theta):", nb_step_model$SE.theta, "\n")
-  if (nb_step_model$theta > 1000) {
+  if (is.finite(nb_step_model$theta) && nb_step_model$theta > 1000) {
     cat("Theta is very large, so the negative binomial model is nearly Poisson.\n")
   }
   cat("\n")

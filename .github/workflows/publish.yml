@@ -40,7 +40,7 @@ jobs:
         env:
           GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          install.packages(c("reticulate", "knitr", "rmarkdown", "tidyverse", "NHANES", "ggplot2", "broom", "dplyr", "forcats"))
+          install.packages(c("reticulate", "knitr", "rmarkdown", "tidyverse", "NHANES", "ggplot2", "broom", "dplyr", "forcats", "MASS", "warnings"))
         # 추가로 필요한 패키지 설치
         shell: Rscript {0}
 

@@ -1,18 +1,25 @@
-# Problem 2-2
+# Problem 2-3
+# 1. 포아송회귀
+
+import warnings
 
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 from scipy.stats import chi2
+from statsmodels.discrete.discrete_model import NegativeBinomial
 
 
 
 Teams = pd.read_csv("data/Teams.csv")
 
+# R의 dplyr 기능은 pandas로 대체함.
+# R의 MASS::glm.nb, MASS::stepAIC는 Python에 동일 함수가 없으므로,
+# statsmodels의 NegativeBinomial과 직접 구현한 stepwise AIC 함수로 대체함.
 
 
-# 데이터 전처리
-predictors_2_2 = [
+#데이터 전처리
+predictors_2_3 = [
     "logRS", "logRA",
     "H", "X2B", "X3B", "HR", "BB", "SO", "CS", "HBP", "SF",
     "ERA", "CG", "SHO", "IPouts", "HA", "HRA", "BBA", "SOA",
@@ -40,7 +47,7 @@ if len(missing_vars) > 0:
         + ", ".join(missing_vars)
     )
 
-teams_2_2 = Teams[
+teams_2_3 = Teams[
     (Teams["yearID"] >= 2010) &
     (Teams["yearID"] <= 2025) &
     (Teams["yearID"] != 2020) &
@@ -53,14 +60,14 @@ teams_2_2 = Teams[
     (Teams["RA"] > 0)
 ].copy()
 
-teams_2_2["G"] = teams_2_2["W"] + teams_2_2["L"]
-teams_2_2["WPct"] = teams_2_2["W"] / teams_2_2["G"]
-teams_2_2["RS"] = teams_2_2["R"]
-teams_2_2["logRS"] = np.log(teams_2_2["R"])
-teams_2_2["logRA"] = np.log(teams_2_2["RA"])
-teams_2_2["log_ratio"] = np.log(teams_2_2["R"] / teams_2_2["RA"])
+teams_2_3["G"] = teams_2_3["W"] + teams_2_3["L"]
+teams_2_3["WPct"] = teams_2_3["W"] / teams_2_3["G"]
+teams_2_3["RS"] = teams_2_3["R"]
+teams_2_3["logRS"] = np.log(teams_2_3["R"])
+teams_2_3["logRA"] = np.log(teams_2_3["RA"])
+teams_2_3["log_ratio"] = np.log(teams_2_3["R"] / teams_2_3["RA"])
 
-teams_2_2 = teams_2_2[
+teams_2_3 = teams_2_3[
     [
         "yearID", "franchID", "teamID",
         "W", "L", "G", "WPct", "RS", "RA",
@@ -71,16 +78,78 @@ teams_2_2 = teams_2_2[
     ]
 ].copy()
 
-teams_2_2 = teams_2_2[
-    (teams_2_2["WPct"] > 0) &
-    (teams_2_2["WPct"] < 1)
+teams_2_3 = teams_2_3[
+    (teams_2_3["WPct"] > 0) &
+    (teams_2_3["WPct"] < 1)
 ].copy()
 
-model_vars = ["WPct", "G", "log_ratio"] + predictors_2_2
-teams_2_2 = teams_2_2.dropna(subset=model_vars).copy()
+model_vars = ["W", "G", "WPct", "log_ratio"] + predictors_2_3
+teams_2_3 = teams_2_3.dropna(subset=model_vars).copy()
 
 
-def fit_glm(data, predictors, intercept=True, maxiter=100):
+# 모형식 일반화
+def count_formula_text(response, predictors):
+    if len(predictors) == 0:
+        return f"{response} ~ offset(log(G))"
+    return f"{response} ~ offset(log(G)) + " + " + ".join(predictors)
+
+
+def logistic_formula_text(response, predictors, intercept=True):
+    if len(predictors) == 0:
+        return f"{response} ~ 1"
+    rhs = " + ".join(predictors)
+    if intercept:
+        return f"{response} ~ {rhs}"
+    return f"{response} ~ 0 + {rhs}"
+
+
+count_full_formula = count_formula_text("W", predictors_2_3)
+count_null_formula = "W ~ offset(log(G))"
+
+logistic_full_formula = logistic_formula_text("WPct", predictors_2_3)
+logistic_null_formula = "WPct ~ 1"
+
+
+def selected_terms(model):
+    return getattr(model, "_selected_predictors", [])
+
+
+def pearson_dispersion(model):
+    return np.sum(model.resid_pearson ** 2) / model.df_resid
+
+
+# 행렬 다중공선성 계산용 조건수 함수
+def condition_number(predictors, data):
+    mm = data[predictors].copy()
+    return np.linalg.cond(mm.to_numpy())
+
+
+# 경고와 에러 저장
+def fit_capture(func):
+    warn = []
+
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            value = func()
+
+            warn = [str(w.message) for w in caught]
+
+        return {
+            "value": value,
+            "warnings": sorted(set(warn)),
+            "error": None
+        }
+
+    except Exception as e:
+        return {
+            "value": e,
+            "warnings": sorted(set(warn)),
+            "error": e
+        }
+
+
+def fit_logistic_glm(data, predictors, intercept=True, maxiter=100):
     X = data[predictors].copy()
 
     if intercept:
@@ -95,37 +164,56 @@ def fit_glm(data, predictors, intercept=True, maxiter=100):
         freq_weights=data["G"]
     ).fit(maxiter=maxiter)
 
+    model._selected_predictors = list(predictors)
+    model._model_kind = "logistic"
+    model._intercept = intercept
+
     return model
 
 
-def formula_text(response, predictors, intercept=True):
-    if len(predictors) == 0:
-        return f"{response} ~ 1"
+def fit_poisson_glm(data, predictors, maxiter=100):
+    X = data[predictors].copy()
+    X = sm.add_constant(X, has_constant="add")
 
-    rhs = " + ".join(predictors)
+    y = data["W"]
+    offset = np.log(data["G"])
 
-    if intercept:
-        return f"{response} ~ {rhs}"
-    else:
-        return f"{response} ~ 0 + {rhs}"
+    model = sm.GLM(
+        y,
+        X,
+        family=sm.families.Poisson(),
+        offset=offset
+    ).fit(maxiter=maxiter)
 
+    model._selected_predictors = list(predictors)
+    model._model_kind = "poisson"
 
-# 일단 모든 변수 적합
-full_formula = formula_text("WPct", predictors_2_2, intercept=True)
-null_formula = "WPct ~ 1"
-
-full_model = fit_glm(teams_2_2, predictors_2_2, intercept=True, maxiter=100)
-
-print("Full model summary")
-print(full_model.summary())
+    return model
 
 
-# AIC를 기준으로 하는 단계별(stepwise) 변수선택
-# Python statsmodels에는 R의 step() 함수가 기본 제공되지 않으므로,
-# AIC 기준 양방향 stepwise selection을 직접 구현함.
-def stepwise_aic(data, all_predictors, start_predictors, trace=1):
+def fit_negative_binomial(data, predictors, maxiter=100):
+    X = data[predictors].copy()
+    X = sm.add_constant(X, has_constant="add")
+
+    y = data["W"]
+    offset = np.log(data["G"])
+
+    model = NegativeBinomial(
+        y,
+        X,
+        offset=offset,
+        loglike_method="nb2"
+    ).fit(maxiter=maxiter, disp=0)
+
+    model._selected_predictors = list(predictors)
+    model._model_kind = "negative_binomial"
+
+    return model
+
+
+def stepwise_aic(data, all_predictors, start_predictors, fit_func, trace=1):
     current_predictors = list(start_predictors)
-    current_model = fit_glm(data, current_predictors, intercept=True)
+    current_model = fit_func(data, current_predictors)
     current_aic = current_model.aic
 
     while True:
@@ -134,17 +222,24 @@ def stepwise_aic(data, all_predictors, start_predictors, trace=1):
         # drop step
         for var in current_predictors:
             new_predictors = [x for x in current_predictors if x != var]
-            model = fit_glm(data, new_predictors, intercept=True)
-            candidates.append(("drop", var, new_predictors, model.aic, model))
+            fit_result = fit_capture(lambda p=new_predictors: fit_func(data, p))
+
+            if fit_result["error"] is None:
+                model = fit_result["value"]
+                candidates.append(("drop", var, new_predictors, model.aic, model))
 
         # add step
         remaining_predictors = [
             x for x in all_predictors if x not in current_predictors
         ]
+
         for var in remaining_predictors:
             new_predictors = current_predictors + [var]
-            model = fit_glm(data, new_predictors, intercept=True)
-            candidates.append(("add", var, new_predictors, model.aic, model))
+            fit_result = fit_capture(lambda p=new_predictors: fit_func(data, p))
+
+            if fit_result["error"] is None:
+                model = fit_result["value"]
+                candidates.append(("add", var, new_predictors, model.aic, model))
 
         if len(candidates) == 0:
             break
@@ -167,41 +262,68 @@ def stepwise_aic(data, all_predictors, start_predictors, trace=1):
         else:
             break
 
-    return current_model, current_predictors
+    return current_model
 
 
-step_model, step_predictors = stepwise_aic(
-    data=teams_2_2,
-    all_predictors=predictors_2_2,
-    start_predictors=predictors_2_2,
+# 비교용 문제2-2 모형 생성
+logistic_full = fit_logistic_glm(
+    teams_2_3,
+    predictors_2_3,
+    intercept=True,
+    maxiter=100
+)
+
+logistic_step = stepwise_aic(
+    data=teams_2_3,
+    all_predictors=predictors_2_3,
+    start_predictors=predictors_2_3,
+    fit_func=lambda data, predictors: fit_logistic_glm(
+        data,
+        predictors,
+        intercept=True,
+        maxiter=100
+    ),
+    trace=0
+)
+
+print(logistic_formula_text("WPct", selected_terms(logistic_step)))
+print(logistic_step.summary())
+
+
+# 포아송회귀
+poisson_full = fit_poisson_glm(
+    teams_2_3,
+    predictors_2_3,
+    maxiter=100
+)
+
+print("Poisson full model summary")
+print(poisson_full.summary())
+print()
+
+poisson_step = stepwise_aic(
+    data=teams_2_3,
+    all_predictors=predictors_2_3,
+    start_predictors=predictors_2_3,
+    fit_func=lambda data, predictors: fit_poisson_glm(
+        data,
+        predictors,
+        maxiter=100
+    ),
     trace=1
 )
 
-print("\nStepwise AIC selected model")
-print(formula_text("WPct", step_predictors, intercept=True))
-print(step_model.summary())
+print("\nPoisson stepwise AIC selected model")
+print(count_formula_text("W", selected_terms(poisson_step)))
+print(poisson_step.summary())
+print()
 
 
-print("AIC of full model and stepwise model")
-aic_table = pd.DataFrame(
-    {
-        "df": [
-            full_model.df_model + 1,
-            step_model.df_model + 1
-        ],
-        "AIC": [
-            full_model.aic,
-            step_model.aic
-        ]
-    },
-    index=["full_model", "step_model"]
-)
-print(aic_table)
+print("Poisson post-stepwise drop1 check")
 
 
-# 남은 변수들을 모두 모형에 남길지 일부를 제거할지
-# R의 drop1(step_model, test = "Chisq")에 해당하는 계산을 직접 구현함.
-def drop1_chisq(data, current_predictors, current_model):
+def poisson_drop1_chisq(data, current_model):
+    current_predictors = selected_terms(current_model)
     rows = []
 
     rows.append({
@@ -215,7 +337,7 @@ def drop1_chisq(data, current_predictors, current_model):
 
     for var in current_predictors:
         reduced_predictors = [x for x in current_predictors if x != var]
-        reduced_model = fit_glm(data, reduced_predictors, intercept=True)
+        reduced_model = fit_poisson_glm(data, reduced_predictors)
 
         lrt = reduced_model.deviance - current_model.deviance
         df_diff = reduced_model.df_resid - current_model.df_resid
@@ -233,92 +355,254 @@ def drop1_chisq(data, current_predictors, current_model):
     return pd.DataFrame(rows).set_index("term")
 
 
-drop_check = drop1_chisq(teams_2_2, step_predictors, step_model)
+poisson_drop_check = poisson_drop1_chisq(teams_2_3, poisson_step)
+print(poisson_drop_check)
+print()
 
-current_aic = step_model.aic
-drop_check_terms = drop_check.loc[drop_check.index != "<none>"].copy()
+poisson_disp_full = pearson_dispersion(poisson_full)
+poisson_disp_step = pearson_dispersion(poisson_step)
 
-candidate_drops = drop_check_terms[
-    drop_check_terms["AIC"].notna() &
-    drop_check_terms["Pr(>Chi)"].notna() &
-    (drop_check_terms["AIC"] <= current_aic + 2) &
-    (drop_check_terms["Pr(>Chi)"] > 0.05)
-].index.tolist()
+print("Poisson overdispersion diagnostics")
+print("Full model Pearson dispersion:", poisson_disp_full)
+print("Stepwise model Pearson dispersion:", poisson_disp_step)
+print("Rule of thumb: values much larger than 1 suggest overdispersion.\n")
 
-print("Variables to consider dropping after stepwise selection:")
-if len(candidate_drops) == 0:
-    print(
-        "None by the rule: AIC within 2 of selected model "
-        "and LRT p-value > 0.05.\n"
+
+# 음이항회귀
+# 우선 모두 적합
+nb_full_fit = fit_capture(
+    lambda: fit_negative_binomial(
+        teams_2_3,
+        predictors_2_3,
+        maxiter=100
     )
+)
+
+nb_model = None
+nb_step_model = None
+nb_fit_status = "not fitted"
+
+# 음이항분포로 적합 실패 시 포아송회귀 단계적 선택모형 변수로 재적합
+if nb_full_fit["error"] is not None:
+    nb_fit_status = "full model failed"
+    print("Negative binomial full model failed.")
+    print("Error message:")
+    print(str(nb_full_fit["value"]), "\n")
+
+    print("Trying a negative binomial model using the Poisson-selected formula.")
+    nb_fallback_fit = fit_capture(
+        lambda: fit_negative_binomial(
+            teams_2_3,
+            selected_terms(poisson_step),
+            maxiter=100
+        )
+    )
+
+    if nb_fallback_fit["error"] is not None:
+        nb_fit_status = "full and fallback models failed"
+        print("Negative binomial fallback model also failed.")
+        print("Error message:")
+        print(str(nb_fallback_fit["value"]), "\n")
+
+        if len(nb_fallback_fit["warnings"]) > 0:
+            print("Fallback warnings:")
+            print(nb_fallback_fit["warnings"])
+            print()
+    else:
+        nb_model = nb_fallback_fit["value"]
+        nb_step_model = nb_model
+        nb_fit_status = "fallback model fitted from Poisson-selected formula"
+        print("Negative binomial fallback model fitted.")
+
+        if len(nb_fallback_fit["warnings"]) > 0:
+            print("Fallback warnings:")
+            print(nb_fallback_fit["warnings"])
+            print()
 else:
-    print(candidate_drops)
+    nb_model = nb_full_fit["value"]
+    print("Negative binomial full model fitted.")
+
+    if len(nb_full_fit["warnings"]) > 0:
+        print("Full-model warnings:")
+        print(nb_full_fit["warnings"])
+        print()
+
+    nb_step_fit = fit_capture(
+        lambda: stepwise_aic(
+            data=teams_2_3,
+            all_predictors=predictors_2_3,
+            start_predictors=predictors_2_3,
+            fit_func=lambda data, predictors: fit_negative_binomial(
+                data,
+                predictors,
+                maxiter=100
+            ),
+            trace=1
+        )
+    )
+
+    if nb_step_fit["error"] is not None:
+        nb_fit_status = "full model fitted but stepAIC failed"
+        print("Negative binomial stepAIC failed.")
+        print("Error message:")
+        print(str(nb_step_fit["value"]), "\n")
+        nb_step_model = nb_model
+    else:
+        nb_fit_status = "stepwise model fitted"
+        nb_step_model = nb_step_fit["value"]
+
+        if len(nb_step_fit["warnings"]) > 0:
+            print("StepAIC warnings:")
+            print(nb_step_fit["warnings"])
+            print()
+
+
+print("Negative binomial fit status:", nb_fit_status, "\n")
+
+
+# 음이항 적합에서의 문제 진단
+design_kappa = condition_number(predictors_2_3, teams_2_3)
+
+print("Diagnostics for possible negative-binomial fitting issues")
+print("Poisson full-model Pearson dispersion:", poisson_disp_full)
+print("Poisson step-model Pearson dispersion:", poisson_disp_step)
+print("Full count-model condition number:", design_kappa)
+
+if design_kappa > 1000:
+    print(
+        "The condition number is large, suggesting strong multicollinearity among predictors. "
+        "This can make the full negative-binomial model or stepwise updates unstable."
+    )
+
+print()
+
+
+def nb_theta(model):
+    alpha = model.params.get("alpha", np.nan)
+
+    if pd.isna(alpha) or alpha <= 0:
+        return np.nan
+
+    return 1 / alpha
+
+
+def nb_theta_se(model):
+    alpha = model.params.get("alpha", np.nan)
+
+    if pd.isna(alpha) or alpha <= 0:
+        return np.nan
+
+    if hasattr(model, "bse") and "alpha" in model.bse.index:
+        alpha_se = model.bse["alpha"]
+        return alpha_se / (alpha ** 2)
+
+    return np.nan
+
+
+if nb_step_model is not None:
+    print("Negative binomial selected/final model")
+    print(count_formula_text("W", selected_terms(nb_step_model)))
+    print(nb_step_model.summary())
+
+    theta_hat = nb_theta(nb_step_model)
+    theta_se = nb_theta_se(nb_step_model)
+
+    print("Estimated theta:", theta_hat)
+    print("SE(theta):", theta_se)
+
+    if theta_hat > 1000:
+        print("Theta is very large, so the negative binomial model is nearly Poisson.")
+
     print()
 
 
-# 최종모형 설정
-final_model = step_model
-final_predictors = step_predictors
+# 예측성능평가
+def prediction_metrics(model, data, model_name, model_type):
+    predictors = selected_terms(model)
 
-print(formula_text("WPct", final_predictors, intercept=True))
-
-
-# 문제1의 모형과 비교
-problem_2_1_model = fit_glm(
-    teams_2_2,
-    ["log_ratio"],
-    intercept=False,
-    maxiter=100
-)
-
-
-def model_metrics(model, data, model_name, predictors, intercept=True):
-    X = data[predictors].copy()
-
-    if intercept:
+    if model_type == "logistic":
+        X = data[predictors].copy()
         X = sm.add_constant(X, has_constant="add")
 
-    pred = model.predict(X)
+        pred_wpct = model.predict(X)
+        pred_w = pred_wpct * data["G"]
+
+    else:
+        X = data[predictors].copy()
+        X = sm.add_constant(X, has_constant="add")
+        offset = np.log(data["G"])
+
+        if model_type == "negative_binomial":
+            pred_w = model.predict(X, offset=offset)
+        else:
+            pred_w = model.predict(X, offset=offset)
+
+        pred_wpct = pred_w / data["G"]
+
+    if hasattr(model, "deviance"):
+        residual_deviance = model.deviance
+    else:
+        residual_deviance = np.nan
+
+    if hasattr(model, "df_resid"):
+        residual_df = model.df_resid
+    else:
+        residual_df = len(data) - len(model.params)
 
     return pd.DataFrame({
         "model": [model_name],
-        "df": [model.df_model + 1],
+        "selected_variables": [", ".join(predictors)],
+        "df": [len(model.params)],
         "logLik": [model.llf],
         "AIC": [model.aic],
-        "residual_deviance": [model.deviance],
-        "residual_df": [model.df_resid],
-        "weighted_MAE": [
-            np.average(np.abs(data["WPct"] - pred), weights=data["G"])
+        "residual_deviance": [residual_deviance],
+        "residual_df": [residual_df],
+        "W_MAE": [np.mean(np.abs(data["W"] - pred_w))],
+        "W_RMSE": [np.sqrt(np.mean((data["W"] - pred_w) ** 2))],
+        "WPct_MAE": [
+            np.average(np.abs(data["WPct"] - pred_wpct), weights=data["G"])
         ],
-        "weighted_RMSE": [
+        "WPct_RMSE": [
             np.sqrt(
-                np.average((data["WPct"] - pred) ** 2, weights=data["G"])
+                np.average((data["WPct"] - pred_wpct) ** 2, weights=data["G"])
             )
         ]
     })
 
 
+# 로지스틱 ~ 포아송 비교
 comparison_table = pd.concat(
     [
-        model_metrics(
-            problem_2_1_model,
-            teams_2_2,
-            "Problem 1",
-            ["log_ratio"],
-            intercept=False
+        prediction_metrics(
+            logistic_step,
+            teams_2_3,
+            "Problem 2-2 logistic stepwise",
+            "logistic"
         ),
-        model_metrics(
-            final_model,
-            teams_2_2,
-            "AIC final model",
-            final_predictors,
-            intercept=True
+        prediction_metrics(
+            poisson_step,
+            teams_2_3,
+            "Problem 2-3 Poisson stepwise",
+            "count"
         )
     ],
     ignore_index=True
 )
 
-print("Model comparison on the same observations")
+# 음이항회귀 적합 성공 시 함께 비교
+if nb_step_model is not None:
+    comparison_table = pd.concat(
+        [
+            comparison_table,
+            prediction_metrics(
+                nb_step_model,
+                teams_2_3,
+                "Problem 2-3 negative binomial",
+                "negative_binomial"
+            )
+        ],
+        ignore_index=True
+    )
+
+print("서로 다른 모형 계열을 비교할 때는 AIC보다는 W_MAE 등의 예측오차 지표를 더 중요하게 보는 것이 적절하다.")
 print(comparison_table)
-print("모형의 복잡도가 올라갔음에도 가중 MAE, RMSE 모두 감소했다. 특히 AIC가 유의미하게 감소했다. ")
-print("따라서 final model이 더 좋은 성능을 보인다. ")

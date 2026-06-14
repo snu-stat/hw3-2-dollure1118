@@ -452,7 +452,7 @@ bj_nls <- nls(
 )
 
 k_hat <- coef(bj_nls)[["k"]]
-print("k의 점추정량 ": k_hat)
+cat("k의 점추정량:", k_hat, "\n")
 
 k_ci <- tryCatch(
   confint(bj_nls)["k", ],
@@ -466,7 +466,7 @@ k_ci <- tryCatch(
   }
 )
 
-print("95% 신뢰구간 ": k_ci)
+cat("95% 신뢰구간:", k_ci, "\n")
 
 
 # 2. 절편이 없는 로지스틱 회귀
@@ -563,7 +563,7 @@ estimate_compare_all <- rbind(
 print(estimate_compare_all)
 
 
-print("logRS coefficient + logRA coefficient:", coef_logs[["logRS"]] + coef_logs[["logRA"]])
+cat("logRS coefficient + logRA coefficient:", coef_logs[["logRS"]] + coef_logs[["logRA"]], "\n")
 print("log(RS)와 log(RA)를 따로 넣어도, log(RS/RA) 하나를 넣은 모형과 거의 다르지 않다. ")
 
 ```

@@ -57,6 +57,11 @@ jobs:
           quarto render hw03.qmd --to ipynb
           test -f _site/hw03.ipynb
         shell: bash -l {0}
+
+      - name: Add Binder environment files
+        run: |
+          cp Dockerfile _site/Dockerfile
+          test -f _site/Dockerfile
       
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3

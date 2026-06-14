@@ -2340,7 +2340,7 @@ EXPOSE 8888
 
 ### 답안
 
-`.github/workflows/publish.yml`에 Quarto 렌더링 이후 GHCR에 로그인하고 Docker 이미지를 빌드하여 `ghcr.io/${{ github.repository_owner }}/my-r-env:latest`로 푸시하는 단계를 추가하였다. 워크플로우는 `main` 브랜치에 push될 때 실행되며, `_site` 디렉토리를 `gh-pages` 브랜치로 배포하도록 설정하였다.
+`.github/workflows/publish.yml`에 Quarto 렌더링 이후 `_site` 디렉토리를 `gh-pages` 브랜치로 배포하는 단계를 두고, 개인 저장소에서는 GHCR에 로그인하여 Docker 이미지를 `ghcr.io/${{ github.repository_owner }}/my-r-env:latest`로 빌드 및 푸시하는 단계를 추가하였다. 워크플로우는 `main` 브랜치에 push될 때 실행된다.
 
 ## 문제 3-3. GitHub Pages에 Binder 링크 추가
 
